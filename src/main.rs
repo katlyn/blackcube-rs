@@ -1,25 +1,16 @@
 use std::collections::HashSet;
-use std::env;
 
-use mongodb::{options::ClientOptions, Client};
+use std::fs;
 
-use serde::{Deserialize, Serialize};
+use mongodb::sync::Client;
 
-// Struct def for database entries
-#[derive(Debug, Serialize, Deserialize)]
-struct Usrbg {
-    uid: String,
-    img: String,
-}
+mod structs;
+
+use crate::structs::defs;
 
 use serenity::{
     async_trait,
-    model::{
-        channel::Message,
-        gateway::Ready,
-        id::{ChannelId, RoleId},
-        interactions::*,
-    },
+    model::{channel::Message, gateway::Ready, interactions::*},
     prelude::*,
 };
 
@@ -38,18 +29,21 @@ lazy_static! {
         m.insert("svg");
         m
     };
+    static ref CONFIG: defs::Config = toml::from_str(
+        &fs::read_to_string("oxide.toml").expect("Something went wrong reading the file")
+    )
+    .expect("Error parsing toml file");
+    static ref DB: mongodb::Collection<structs::defs::Usrbg> = connect_database();
 }
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
-        let request_channel_id: u64 = env::var("REQUEST_CHANNEL_ID")
-            .unwrap()
-            .trim()
-            .parse()
-            .expect("Expected a request channel id in the environment");
+        if msg.content == "~rm" {
+            println!("{:?}", msg);
+        };
 
-        if msg.channel_id == request_channel_id {
+        if msg.channel_id == CONFIG.server.request_channel_id {
             // Check for attachments
             if msg.attachments.len() > 0 {
                 for attachment in msg.attachments {
@@ -59,19 +53,10 @@ impl EventHandler for Handler {
                         Some(content) => {
                             // Match for valid image type, removing "image/" prefix
                             if IMAGE_TYPES.contains(&content[6..]) {
-
-                                // Parse env var
-                                let log_channel_id: u64 = env::var("LOG_CHANNEL_ID")
-                                    .unwrap()
-                                    .trim()
-                                    .parse()
-                                    .expect("Expected a log channel id in the environment");
-                                
-                                // Convert to channel id type for later use
-                                let log_channel_id = ChannelId(log_channel_id);
-
                                 // Send log message in specified channel, attach embed and button components within the action row
-                                if let Err(why) = log_channel_id
+                                if let Err(why) = CONFIG
+                                    .server
+                                    .log_channel_id
                                     .send_message(&ctx.http, |m| {
                                         m.components(|c| {
                                             c.create_action_row(|r| {
@@ -124,21 +109,10 @@ impl EventHandler for Handler {
 
     // Watch for button interactions
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
-
-        // Parse env var
-        let check_role = RoleId {
-            0: env::var("AUTH_ROLE_ID")
-                .unwrap()
-                .trim()
-                .parse()
-                .expect("Expected an authorization role id in the environment"),
-        };
-
         // Unwrap interaction into message component
-        let interaction = interaction
+        let mut interaction = interaction
             .message_component()
             .expect("Error unwrapping interaction");
-
 
         // Check authentication role
         if interaction
@@ -146,19 +120,13 @@ impl EventHandler for Handler {
             .as_ref()
             .expect("Error parsing member")
             .roles
-            .contains(&check_role)
+            .contains(&CONFIG.server.auth_role_id)
         {
-            // Parse env var
-            let imgur_id = env::var("IMGUR_ID").expect("Expected an imgur id in the environment");
-
             // Get button type (Accept/Deny)
-            let id = interaction.data.custom_id;
-
-            // Create mutable message for responses
-            let mut message = interaction.message;
+            let id = &interaction.data.custom_id;
 
             // Clone the embed to avoid shared reference issues while reading values from before the editing
-            let embeds = message.clone().embeds;
+            let embeds = interaction.message.clone().embeds;
 
             // Extract the banner image url from the embed
             let image_url = &embeds[0]
@@ -176,50 +144,46 @@ impl EventHandler for Handler {
             // Choose action based on button type
             match id.as_str() {
                 "Approve" => {
-
-                    // Parse env var
-                    let mongo_url = env::var("MONGO_URL").expect("Expected a link to a mongodb database in the environment");
-
-                    let client_options = ClientOptions::parse(mongo_url)
-                        .await
-                        .expect("Error creating db connection");
-
-                    let mongo_client =
-                        Client::with_options(client_options).expect("Error creating db client");
-
-                    let db = mongo_client.database("usrbg-staging");
-
-                    let usrbg_collection = db.collection::<Usrbg>("usrbg-staging");
+                    // interaction.defer(&ctx.http);
 
                     let client = reqwest::Client::new();
 
                     // Upload image to imgur
                     let res = client
                         .post("https://api.imgur.com/3/image")
-                        .header("Authorization", imgur_id)
+                        .header("Authorization", &CONFIG.api.imgur_id)
                         // Clone to avoid shared reference issues
                         .body(image_url.clone())
                         .send()
                         .await;
 
                     // Serialize json from string to retrieve image id
-                    let json: serde_json::Value =
+                    let json: defs::ImgurResponse =
                         serde_json::from_str(&res.unwrap().text().await.unwrap())
                             .expect("Error parsing json");
 
+                    println!("{:?}", json.status);
+
                     // Get the banner id from the serialized json, and then convert it back to a string for entry into the database
                     // Also trims the first and last chars from the string which are quotes -- Better fix??
-                    let banner_id = remove_quoutes(serde_json::to_string(&json["data"]["id"]).expect("Error converting json to string"));
+                    let banner_id = remove_quoutes(
+                        serde_json::to_string(&json.data.id)
+                            .expect("Error converting json to string"),
+                    );
 
-                    let entry = Usrbg {
+                    let entry = defs::Usrbg {
                         uid: uid.to_string(),
                         img: banner_id,
                     };
 
-                    usrbg_collection.insert_one(entry, None).await.expect("Error inserting entry");
+                    usrbg_collection
+                        .insert_one(entry, None)
+                        .await
+                        .expect("Error inserting entry");
 
                     // Update message with approval
-                    message
+                    interaction
+                        .message
                         .edit(&ctx, |m| {
                             m.components(|c| c);
                             m.embed(|e| {
@@ -234,9 +198,9 @@ impl EventHandler for Handler {
                         .expect("Error editing message");
                 }
                 "Deny" => {
-
                     // Update message with denial, nothing else needs to be done here
-                    message
+                    interaction
+                        .message
                         .edit(&ctx, |m| {
                             m.components(|c| c);
                             m.embed(|e| {
@@ -254,7 +218,6 @@ impl EventHandler for Handler {
                 &_ => {}
             }
         } else {
-
             // Reply ephemeraly stating a lack of authentication role
             interaction
                 .create_interaction_response(&ctx, |m| {
@@ -283,15 +246,8 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
-    let token = env::var("DISCORD_TOKEN").expect("Expected a token in the environment");
-    let application_id: u64 = env::var("APPLICATION_ID")
-        .unwrap()
-        .trim()
-        .parse()
-        .expect("Expected an application id in the environment");
-
-    let mut client = serenity::Client::builder(&token)
-        .application_id(application_id)
+    let mut client = serenity::Client::builder(&CONFIG.bot.discord_token)
+        .application_id(CONFIG.bot.application_id)
         .event_handler(Handler)
         .await
         .expect("Err creating client");
@@ -310,4 +266,13 @@ fn remove_quoutes(string: String) -> String {
     string.next();
     string.next_back();
     string.as_str().to_string()
+}
+
+async fn connect_database() -> mongodb::Collection<structs::defs::Usrbg> {
+    let client_options = ClientOptions::parse(&CONFIG.api.mongo_url).expect("Error parsing mongodb url");
+
+    let mongo_client = Client::with_options(client_options).expect("Error creating db client");
+
+    let db = mongo_client.database("usrbg-staging");
+    db.collection::<defs::Usrbg>("usrbg-staging")
 }
