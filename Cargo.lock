@@ -1070,7 +1070,6 @@ dependencies = [
  "rustls 0.19.1",
  "rustls-pemfile",
  "serde",
- "serde_bytes",
  "serde_with",
  "sha-1",
  "sha2",
@@ -1206,6 +1205,7 @@ dependencies = [
 name = "oxide"
 version = "0.1.0"
 dependencies = [
+ "bson",
  "lazy_static",
  "mongodb",
  "reqwest",
