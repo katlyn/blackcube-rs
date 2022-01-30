@@ -135,12 +135,6 @@ impl EventHandler for Handler {
                         serde_json::from_str(&res.unwrap().text().await.unwrap())
                             .expect("Error parsing json");
 
-                    // Get the banner id from the serialized json, and then convert it back to a string for entry into the database
-                    // Also trims the first and last chars from the string which are quotes -- Better fix??
-                    // let banner_id = serde_json::to_string(&json.data.id)
-                    //     .expect("Error converting json to string")
-                    //     .as_str().unwrap();
-
                     let entry = defs::Usrbg {
                         uid: uid.to_string(),
                         img: json.data.id,
