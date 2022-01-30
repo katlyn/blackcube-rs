@@ -43,15 +43,18 @@ impl EventHandler for Handler {
                 create_request(ctx, msg).await;
             }
         } else if msg.channel_id == CONFIG.server.command_channel_id {
-            if check_auth(&msg.member.expect("Error").roles, CONFIG.server.auth_role_id) {
-                let mut iter = msg.content.split_whitespace();
-                match iter.next() {
-                    None => {
-                        println!("Invalid Command");
-                    }
-                    Some(command) => {
-                        let uid = iter.next().expect("Error initiating ban");
-                        if uid.trim().parse::<u64>().is_ok() {
+            let mut iter = msg.content.split_whitespace();
+            match iter.next() {
+                None => {
+                    println!("Invalid Command");
+                }
+                Some(command) => {
+                    let uid = iter.next().expect("Error initiating ban");
+                    if uid.trim().parse::<u64>().is_ok() {
+                        if check_auth(
+                            &msg.member.expect("Error").roles,
+                            CONFIG.server.auth_role_id,
+                        ) {
                             match command {
                                 "~rm" => {
                                     COLLECTIONS
@@ -63,7 +66,6 @@ impl EventHandler for Handler {
                                     let entry = defs::Blacklist {
                                         uid: uid.to_owned(),
                                     };
-    
                                     COLLECTIONS
                                         .blacklist
                                         .insert_one(entry, None)
@@ -78,10 +80,14 @@ impl EventHandler for Handler {
                                 &_ => {}
                             }
                         }
+                    } else if command == "~rm" {
+                        COLLECTIONS
+                        .usrbg
+                        .delete_one(doc! { "uid": msg.author.id.to_string() }, None)
+                        .expect("Error removing entry");
                     }
                 }
             }
-            
         }
     }
 
@@ -93,7 +99,10 @@ impl EventHandler for Handler {
             .expect("Error unwrapping interaction");
 
         // Check authentication role
-        if check_auth(&interaction.member.as_ref().expect("Error").roles, CONFIG.server.auth_role_id) {
+        if check_auth(
+            &interaction.member.as_ref().expect("Error").roles,
+            CONFIG.server.auth_role_id,
+        ) {
             // Clone the embed to avoid shared reference issues while reading values from before the editing
             let embed = &interaction.message.embeds[0];
 
@@ -221,13 +230,6 @@ async fn main() {
         println!("Client error: {:?}", err);
     }
 }
-
-// fn remove_quoutes(string: String) -> String {
-//     let mut string = string.chars();
-//     string.next();
-//     string.next_back();
-//     string.as_str().to_string()
-// }
 
 fn connect_database() -> structs::defs::Collections {
     let client = Client::with_uri_str(&CONFIG.database.url).expect("Error connecting to database");
