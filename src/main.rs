@@ -3,6 +3,8 @@ use mongodb::sync::Client;
 use std::collections::HashSet;
 use std::fs;
 
+pub use mongodb::options::FindOneAndUpdateOptions;
+
 use serenity::{
     async_trait,
     model::{channel::Message, gateway::Ready, id::RoleId, interactions::*},
@@ -66,9 +68,16 @@ impl EventHandler for Handler {
                                     let entry = defs::Blacklist {
                                         uid: uid.to_owned(),
                                     };
+                                    let options = FindOneAndUpdateOptions::builder()
+                                        .upsert(Some(true))
+                                        .build();
                                     COLLECTIONS
                                         .blacklist
-                                        .insert_one(entry, None)
+                                        .find_one_and_update(
+                                            doc! { "uid": uid },
+                                            bson::to_document(&entry).unwrap(),
+                                            Some(options),
+                                        )
                                         .expect("Error inserting entry");
                                 }
                                 "~unban" => {
@@ -82,9 +91,9 @@ impl EventHandler for Handler {
                         }
                     } else if command == "~rm" {
                         COLLECTIONS
-                        .usrbg
-                        .delete_one(doc! { "uid": msg.author.id.to_string() }, None)
-                        .expect("Error removing entry");
+                            .usrbg
+                            .delete_one(doc! { "uid": msg.author.id.to_string() }, None)
+                            .expect("Error removing entry");
                     }
                 }
             }
@@ -140,9 +149,16 @@ impl EventHandler for Handler {
                         img: json.data.id,
                     };
 
+                    let options = FindOneAndUpdateOptions::builder()
+                        .upsert(Some(true))
+                        .build();
                     COLLECTIONS
                         .usrbg
-                        .insert_one(entry, None)
+                        .find_one_and_update(
+                            doc! { "uid": &uid },
+                            bson::to_document(&entry).unwrap(),
+                            Some(options),
+                        )
                         .expect("Error inserting entry");
 
                     // Update message with approval
