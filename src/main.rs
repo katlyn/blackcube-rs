@@ -61,7 +61,7 @@ impl EventHandler for Handler {
         if msg.channel_id == CONFIG.server.request_channel_id {
             handle_request(ctx, msg).await;
         } else if msg.channel_id == CONFIG.server.command_channel_id {
-            handle_commands(msg);
+            validate_commands(msg);
         }
     }
 
@@ -115,7 +115,7 @@ async fn handle_request(ctx: Context, msg: Message) {
     }
 }
 
-fn handle_commands(msg: Message) {
+fn validate_commands(msg: Message) {
     let mut command_arguments = msg.content.split_whitespace();
     let command = command_arguments.next();
     match command {
@@ -134,42 +134,7 @@ fn handle_commands(msg: Message) {
                     }
                 }
                 Some(uid) => {
-                    let valid_id = uid.trim().parse::<u64>().is_ok();
-                    let has_auth = msg.member.unwrap().check_auth();
-
-                    if valid_id && has_auth {
-                        match command {
-                            "~remove" => {
-                                COLLECTIONS
-                                    .usrbg
-                                    .delete_one(doc! { "uid": uid }, None)
-                                    .expect("Error removing entry");
-                            }
-                            "~ban" => {
-                                let entry = defs::Blacklist {
-                                    uid: uid.to_owned(),
-                                };
-                                let options = FindOneAndUpdateOptions::builder()
-                                    .upsert(Some(true))
-                                    .build();
-                                COLLECTIONS
-                                    .blacklist
-                                    .find_one_and_update(
-                                        doc! { "uid": uid },
-                                        bson::to_document(&entry).unwrap(),
-                                        Some(options),
-                                    )
-                                    .expect("Error inserting entry");
-                            }
-                            "~unban" => {
-                                COLLECTIONS
-                                    .blacklist
-                                    .delete_one(doc! { "uid": uid }, None)
-                                    .expect("Error unbanning user");
-                            }
-                            &_ => {}
-                        }
-                    }
+                    parse_commands(&msg, command, uid);
                 }
             }
         }
@@ -342,4 +307,43 @@ async fn reply_deny(
         })
         .await
         .expect("Error editing message");
+}
+
+fn parse_commands(msg: &Message, command: &str, uid: &str) {
+    let valid_id = uid.trim().parse::<u64>().is_ok();
+    let has_auth = msg.member.as_ref().unwrap().check_auth();
+
+    if valid_id && has_auth {
+        match command {
+            "~remove" => {
+                COLLECTIONS
+                    .usrbg
+                    .delete_one(doc! { "uid": uid }, None)
+                    .expect("Error removing entry");
+            }
+            "~ban" => {
+                let entry = defs::Blacklist {
+                    uid: uid.to_owned(),
+                };
+                let options = FindOneAndUpdateOptions::builder()
+                    .upsert(Some(true))
+                    .build();
+                COLLECTIONS
+                    .blacklist
+                    .find_one_and_update(
+                        doc! { "uid": uid },
+                        bson::to_document(&entry).unwrap(),
+                        Some(options),
+                    )
+                    .expect("Error inserting entry");
+            }
+            "~unban" => {
+                COLLECTIONS
+                    .blacklist
+                    .delete_one(doc! { "uid": uid }, None)
+                    .expect("Error unbanning user");
+            }
+            &_ => {}
+        }
+    }
 }
