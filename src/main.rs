@@ -1,5 +1,4 @@
 use bson::doc;
-use mongodb::sync::Client;
 use std::collections::HashSet;
 use std::fs;
 
@@ -21,6 +20,9 @@ struct Handler;
 mod structs;
 use crate::structs::defs;
 
+mod database;
+use crate::database::{actions, init};
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -37,7 +39,8 @@ lazy_static! {
         &fs::read_to_string("oxide.toml").expect("Something went wrong reading the file")
     )
     .expect("Error parsing toml file");
-    static ref COLLECTIONS: structs::defs::Collections = connect_database();
+    static ref COLLECTIONS: structs::defs::Collections = init::connect_database(&*CONFIG);
+    static ref HTTP_CLIENT: reqwest::Client = reqwest::Client::new();
 }
 
 trait HasAuth {
@@ -90,21 +93,6 @@ async fn main() {
     client.start().await.expect("Error starting client");
 }
 
-fn connect_database() -> structs::defs::Collections {
-    let client = Client::with_uri_str(&CONFIG.database.url).expect("Error connecting to database");
-    let db = client.database(&CONFIG.database.name);
-
-    let usrbg_collection = db.collection::<structs::defs::Usrbg>(&CONFIG.database.usrbg_collection);
-    let blacklist_collection =
-        db.collection::<structs::defs::Blacklist>(&CONFIG.database.blacklist_collection);
-
-    let collections = structs::defs::Collections {
-        usrbg: usrbg_collection,
-        blacklist: blacklist_collection,
-    };
-    collections
-}
-
 async fn handle_request(ctx: Context, msg: Message) {
     for attachment in &msg.attachments {
         let valid_image = IMAGE_TYPES.contains(&attachment.content_type.as_ref().unwrap()[6..]);
@@ -127,10 +115,8 @@ fn validate_commands(msg: Message) {
             match uid {
                 None => {
                     if command == "~remove" {
-                        COLLECTIONS
-                            .usrbg
-                            .delete_one(doc! { "uid": msg.author.id.to_string() }, None)
-                            .expect("Error removing entry");
+                        actions::delete(&*COLLECTIONS, msg.author.id.to_string())
+                            .expect("Error removing self from database");
                     }
                 }
                 Some(uid) => {
@@ -159,35 +145,15 @@ async fn handle_component_interaction(
     match component_interaction.data.custom_id.as_str() {
         "Approve" => {
             if has_auth {
-                let client = reqwest::Client::new();
-
-                let res = client
-                    .post("https://api.imgur.com/3/image")
-                    .header("Authorization", &CONFIG.api.imgur_id)
-                    .body(image_url.clone())
-                    .send()
-                    .await;
-
-                let json: defs::ImgurResponse =
-                    serde_json::from_str(&res.unwrap().text().await.unwrap())
-                        .expect("Error parsing json");
+                let json = upload_image_to_imgur(&image_url).await.expect("Error uploading image to imgur");
 
                 let entry = defs::Usrbg {
                     uid: uid.to_string(),
                     img: json.data.id,
                 };
 
-                let options = FindOneAndUpdateOptions::builder()
-                    .upsert(Some(true))
-                    .build();
-                COLLECTIONS
-                    .usrbg
-                    .find_one_and_update(
-                        doc! { "uid": &uid },
-                        doc! { "$set": bson::to_bson(&entry).unwrap() },
-                        Some(options),
-                    )
-                    .expect("Error inserting entry");
+                actions::upsert(&*COLLECTIONS, &uid, &entry)
+                    .expect("Error upserting user into database");
 
                 component_interaction
                     .message
@@ -196,7 +162,7 @@ async fn handle_component_interaction(
                         m.embed(|e| {
                             e.title("Request Approved");
                             e.description(uid);
-                            e.thumbnail(image_url.clone());
+                            e.thumbnail(&image_url);
                             e
                         });
                         m
@@ -209,14 +175,14 @@ async fn handle_component_interaction(
         }
         "Deny" => {
             if has_auth {
-                reply_deny(&ctx, &mut component_interaction, uid, image_url).await;
+                reply_deny(&ctx, &mut component_interaction, uid, &image_url).await;
             } else {
                 send_no_auth(&ctx, &component_interaction).await;
             }
         }
         "Cancel" => {
             if component_interaction.user.id.0 == uid.trim().parse::<u64>().unwrap() {
-                reply_deny(&ctx, &mut component_interaction, uid, image_url).await;
+                reply_deny(&ctx, &mut component_interaction, uid, &image_url).await;
             }
         }
         &_ => {}
@@ -291,7 +257,7 @@ async fn reply_deny(
     ctx: &Context,
     component_interaction: &mut message_component::MessageComponentInteraction,
     uid: String,
-    image_url: String,
+    image_url: &String,
 ) {
     component_interaction
         .message
@@ -300,7 +266,7 @@ async fn reply_deny(
             m.embed(|e| {
                 e.title("Request Denied");
                 e.description(uid);
-                e.thumbnail(image_url.clone());
+                e.thumbnail(image_url);
                 e
             });
             m
@@ -344,6 +310,27 @@ fn parse_commands(msg: &Message, command: &str, uid: &str) {
                     .expect("Error unbanning user");
             }
             &_ => {}
+        }
+    }
+}
+
+async fn upload_image_to_imgur(image_url: &String) -> Result<defs::ImgurResponse, serde_json::Error> {
+    let response = HTTP_CLIENT
+        .post("https://api.imgur.com/3/image")
+        .header("Authorization", &CONFIG.api.imgur_id)
+        .body(image_url.clone())
+        .send()
+        .await;
+
+    let raw_json_response = response.unwrap().text().await.unwrap();
+    let json = serde_json::from_str::<defs::ImgurResponse>(&raw_json_response);
+
+    match json {
+        Ok(parsed) => {
+            Ok(parsed)
+        }
+        Err(err) => {
+            Err(err)
         }
     }
 }
