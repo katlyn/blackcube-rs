@@ -1,3 +1,4 @@
+use anyhow::Result;
 use bson::doc;
 use std::collections::HashSet;
 use std::fs;
@@ -145,11 +146,14 @@ async fn handle_component_interaction(
     match component_interaction.data.custom_id.as_str() {
         "Approve" => {
             if has_auth {
-                let json = upload_image_to_imgur(&image_url).await.expect("Error uploading image to imgur");
+                let json = upload_image_to_imgur(&image_url)
+                    .await
+                    .expect("Error uploading image to imgur");
 
                 let entry = defs::Usrbg {
                     uid: uid.to_string(),
-                    img: json.data.id,
+                    // .id - replace later after fixing compiler to take just imgur ids
+                    img: json.data.link,
                 };
 
                 actions::upsert(&*COLLECTIONS, &uid, &entry)
@@ -314,23 +318,15 @@ fn parse_commands(msg: &Message, command: &str, uid: &str) {
     }
 }
 
-async fn upload_image_to_imgur(image_url: &String) -> Result<defs::ImgurResponse, serde_json::Error> {
-    let response = HTTP_CLIENT
+async fn upload_image_to_imgur(image_url: &String) -> Result<defs::ImgurResponse, anyhow::Error> {
+    let request = HTTP_CLIENT
         .post("https://api.imgur.com/3/image")
         .header("Authorization", &CONFIG.api.imgur_id)
-        .body(image_url.clone())
-        .send()
-        .await;
+        .body(image_url.clone());
 
-    let raw_json_response = response.unwrap().text().await.unwrap();
-    let json = serde_json::from_str::<defs::ImgurResponse>(&raw_json_response);
+    let response = request.send().await?;
+    let raw_json_response = response.text().await?;
+    let json = serde_json::from_str::<defs::ImgurResponse>(&raw_json_response)?;
 
-    match json {
-        Ok(parsed) => {
-            Ok(parsed)
-        }
-        Err(err) => {
-            Err(err)
-        }
-    }
+    Ok(json)
 }

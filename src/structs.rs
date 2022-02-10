@@ -18,18 +18,20 @@ pub mod defs {
     pub struct Blacklist {
         pub uid: String,
     }
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct ImgurResponse {
         pub data: ImgurData,
         pub status: u32,
     }
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct ImgurData {
         pub id: String,
+        pub link: String,
+        // remove link later after fixing compiler
     }
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Config {
         pub bot: Bot,
@@ -37,13 +39,13 @@ pub mod defs {
         pub database: Database,
         pub server: Server,
     }
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Bot {
         pub application_id: u64,
         pub discord_token: String,
     }
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Api {
         pub imgur_id: String,
@@ -56,7 +58,7 @@ pub mod defs {
         pub usrbg_collection: String,
         pub blacklist_collection: String,
     }
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct Server {
         pub request_channel_id: ChannelId,
