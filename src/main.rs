@@ -2,6 +2,7 @@ use anyhow::Result;
 use bson::doc;
 use std::collections::HashSet;
 use std::fs;
+use url::Url;
 
 pub use mongodb::options::FindOneAndUpdateOptions;
 
@@ -63,6 +64,9 @@ impl HasAuth for Member {
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
         if msg.channel_id == CONFIG.server.request_channel_id {
+            println!("** START REQUEST **");
+            println!("Request from: {}", msg.author.id.0);
+            println!("Requested at: {}", msg.timestamp);
             handle_request(ctx, msg).await;
         } else if msg.channel_id == CONFIG.server.command_channel_id {
             validate_commands(msg);
@@ -95,12 +99,39 @@ async fn main() {
 }
 
 async fn handle_request(ctx: Context, msg: Message) {
-    for attachment in &msg.attachments {
-        let valid_image = IMAGE_TYPES.contains(&attachment.content_type.as_ref().unwrap()[6..]);
+    let mut has_valid_image_url: Option<String> = None;
 
-        if valid_image {
-            create_request(&ctx, &msg, attachment).await;
+    // Allow for links to images - Need to implement image type parsing (security risk)
+    // let message_content_has_url: Result<Url, url::ParseError> = Url::parse(&msg.content);
+    // match message_content_has_url {
+    //     Ok(image_url) => {
+    //         has_valid_image_url = Some(String::from(image_url));
+    //     }
+    //     _ => {}
+    // }
+
+    let has_valid_attachment = msg.attachments.first();
+    match has_valid_attachment {
+        Some(attachment) => {
+            let attachment_content_type = &attachment.content_type.as_ref().unwrap()[6..];
+            let message_has_valid_attachment = IMAGE_TYPES.contains(attachment_content_type);
+            if message_has_valid_attachment {
+                has_valid_image_url = Some(attachment.url.clone());
+            }
         }
+        _ => {}
+    }
+
+    match has_valid_image_url {
+        Some(image_url) => {
+            let upload_response = upload_image_to_imgur(image_url)
+                .await
+                .expect("Error uploading image to imgur");
+
+            let uploaded_image_url = upload_response.data.link;
+            create_request(&ctx, &msg, uploaded_image_url).await;
+        }
+        None => println!("Cannot divide by 0"),
     }
 }
 
@@ -146,14 +177,10 @@ async fn handle_component_interaction(
     match component_interaction.data.custom_id.as_str() {
         "Approve" => {
             if has_auth {
-                let json = upload_image_to_imgur(&image_url)
-                    .await
-                    .expect("Error uploading image to imgur");
-
                 let entry = defs::Usrbg {
                     uid: uid.to_string(),
                     // .id - replace later after fixing compiler to take just imgur ids
-                    img: json.data.link,
+                    img: image_url.clone(),
                 };
 
                 actions::upsert(&*COLLECTIONS, &uid, &entry)
@@ -193,7 +220,7 @@ async fn handle_component_interaction(
     }
 }
 
-async fn create_request(ctx: &Context, msg: &Message, attachment: &Attachment) {
+async fn create_request(ctx: &Context, msg: &Message, image_url: String) {
     CONFIG
         .server
         .log_channel_id
@@ -229,7 +256,7 @@ async fn create_request(ctx: &Context, msg: &Message, attachment: &Attachment) {
             m.embed(|e| {
                 e.title("Request Pending");
                 e.description(msg.author.id.0);
-                e.thumbnail(&attachment.url);
+                e.thumbnail(image_url);
 
                 e
             });
@@ -238,6 +265,7 @@ async fn create_request(ctx: &Context, msg: &Message, attachment: &Attachment) {
         })
         .await
         .unwrap();
+    println!("** END REQUEST **");
 }
 
 async fn send_no_auth(
@@ -318,11 +346,11 @@ fn parse_commands(msg: &Message, command: &str, uid: &str) {
     }
 }
 
-async fn upload_image_to_imgur(image_url: &String) -> Result<defs::ImgurResponse, anyhow::Error> {
+async fn upload_image_to_imgur(image_url: String) -> Result<defs::ImgurResponse, anyhow::Error> {
     let request = HTTP_CLIENT
         .post("https://api.imgur.com/3/image")
         .header("Authorization", &CONFIG.api.imgur_id)
-        .body(image_url.clone());
+        .body(image_url);
 
     let response = request.send().await?;
     let raw_json_response = response.text().await?;

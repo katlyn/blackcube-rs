@@ -1221,6 +1221,7 @@ dependencies = [
  "serenity",
  "tokio",
  "toml",
+ "url",
 ]
 
 [[package]]
