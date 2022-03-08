@@ -5,6 +5,7 @@ on:
     branches: [ master ]
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,6 +18,16 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Build
-      run: cargo build --verbose
+      run: |
+        rustup target add x86_64-unknown-linux-gnu
+        cargo build --verbose --release --target x86_64-unknown-linux-gnu
     - name: Run tests
       run: cargo test --verbose
+    - name: Push Build
+      run: |
+        git config --global user.name 'p0rtL6'
+        git config --global user.email 'p0rtL6@users.noreply.github.com'
+        git add ./target/release/oxide
+        git commit -m "Automated Build"
+        git checkout build
+        git push
