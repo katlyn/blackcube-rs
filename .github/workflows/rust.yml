@@ -27,8 +27,7 @@ jobs:
       run: |
         git config --global user.name 'p0rtL6'
         git config --global user.email 'p0rtL6@users.noreply.github.com'
-        ls -R
-        git add ./target/release/oxide
+        git add ./target/x86_64-unknown-linux-gnu/release/oxide
         git commit -m "Automated Build"
         git checkout build
         git push
