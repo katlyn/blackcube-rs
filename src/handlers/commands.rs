@@ -3,7 +3,7 @@ use serenity::{client::Context, model::channel::Message};
 
 use crate::{database, responses::send_command_reply, structs::Blacklist, HasAuth, COLLECTIONS};
 
-pub fn handle_commands(msg: Message, ctx: Context) {
+pub fn handle_commands(ctx: Context, msg: Message) {
     let message_content = msg.content.clone();
     let mut message_words = message_content.split_whitespace();
     let command = message_words.next();
@@ -11,29 +11,29 @@ pub fn handle_commands(msg: Message, ctx: Context) {
         Some(command) => {
             let command_argument = message_words.next();
 
-            handle_command_auth_level(msg, ctx, command, command_argument);
+            handle_command_auth_level(ctx, msg, command, command_argument);
         }
         None => {}
     }
 }
 
 pub fn handle_command_auth_level(
-    msg: Message,
     ctx: Context,
+    msg: Message,
     command: &str,
     command_argument: Option<&str>,
 ) {
     let has_auth = msg.member.as_ref().unwrap().check_auth();
     if has_auth && command_argument.is_some() {
-        handle_admin_commands(msg, ctx, command, command_argument);
+        handle_admin_commands(ctx, msg, command, command_argument);
     } else {
-        handle_user_commands(msg, ctx, command);
+        handle_user_commands(ctx, msg, command);
     }
 }
 
 pub fn handle_admin_commands(
-    msg: Message,
     ctx: Context,
+    msg: Message,
     command: &str,
     command_argument: Option<&str>,
 ) {
@@ -71,7 +71,7 @@ pub fn handle_admin_commands(
     }
 }
 
-pub fn handle_user_commands(msg: Message, ctx: Context, command: &str) {
+pub fn handle_user_commands(ctx: Context, msg: Message, command: &str) {
     match command {
         "~remove" => {
             database::delete(&*COLLECTIONS, msg.author.id.to_string())

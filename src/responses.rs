@@ -15,6 +15,7 @@ pub async fn edit_request(
     image_url: String,
     message: &str,
 ) {
+    // let thumbnail = component_interaction.message.embeds.first().expect("error parsing first embed in vector").thumbnail.expect("error parsing thumbnail from request embed").url;
     component_interaction
         .message
         .edit(&ctx, |m| {
@@ -22,7 +23,6 @@ pub async fn edit_request(
             m.embed(|e| {
                 e.title(message);
                 e.description(uid);
-                e.thumbnail(image_url);
                 e
             });
             m

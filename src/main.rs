@@ -59,10 +59,11 @@ impl TypeInfo for Blacklist {
 
 lazy_static! {
     static ref CONFIG: Config = toml::from_str(
-        &fs::read_to_string("oxide.toml").expect("Something went wrong reading the file")
+        &fs::read_to_string("/etc/oxide/oxide.toml")
+            .expect("Something went wrong reading the file")
     )
     .expect("Error parsing toml file");
-    static ref COLLECTIONS: Collections = connect_database(&*CONFIG);
+    static ref COLLECTIONS: Collections = connect_database(&CONFIG);
     static ref HTTP_CLIENT: Client = Client::new();
 }
 
@@ -72,7 +73,7 @@ impl EventHandler for Handler {
         if msg.channel_id == CONFIG.server.request_channel_id {
             handle_request(ctx, msg).await;
         } else if msg.channel_id == CONFIG.server.command_channel_id {
-            handle_commands(msg, ctx);
+            handle_commands(ctx, msg);
         }
     }
 
