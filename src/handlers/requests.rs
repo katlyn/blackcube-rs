@@ -1,52 +1,88 @@
-use bson::doc;
+use anyhow::{bail, Context as AnyhowContext};
 use serenity::{client::Context, model::channel::Message};
 
-use crate::{imgur::upload_image_to_imgur, responses::create_request, COLLECTIONS, CONFIG};
+use crate::{
+    auth::IsBlacklisted,
+    responses::{create_request_log_message, edit_request},
+    structs::{Config, PendingRequestUidStore, PendingRequestMidStore},
+};
 
-pub async fn handle_request(ctx: Context, msg: Message) {
-    let mut has_valid_image_url: Option<String> = None;
-
-    // Allow for links to images - Need to implement image type parsing (security risk)
-    // let message_content_has_url: Result<Url, url::ParseError> = Url::parse(&msg.content);
-    // match message_content_has_url {
-    //     Ok(image_url) => {
-    //         has_valid_image_url = Some(String::from(image_url));
-    //     }
-    //     _ => {}
-    // }
-
-    let blacklist_search_query = doc! { "uid": msg.author.id.0.to_string() };
-    let blacklist_search_result = COLLECTIONS.blacklist.find_one(blacklist_search_query, None);
-    let is_blacklisted = blacklist_search_result.unwrap().is_some();
-    if is_blacklisted {
-        return;
+pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<()> {
+    if msg.author.is_blacklisted(&ctx).await? {
+        bail!("User is blacklisted");
     };
 
-    let has_valid_attachment = msg.attachments.first();
+    // check if user has an existing request, if so, cancel it first
 
-    match has_valid_attachment {
-        Some(attachment) => {
-            let attachment_content_type = &attachment.content_type.as_ref().unwrap()[6..];
-            let message_has_valid_attachment = CONFIG
-                .settings
-                .image_types
-                .contains(&attachment_content_type.to_string());
-            if message_has_valid_attachment {
-                has_valid_image_url = Some(attachment.url.clone());
+    let mut data = ctx.data.write().await;
+    let pending_request_uid_store = data
+        .get_mut::<PendingRequestUidStore>()
+        .context("Could not get pending request store")?;
+
+    let message_id = pending_request_uid_store.remove(&msg.author.id);
+
+    let pending_request_mid_store = data
+    .get_mut::<PendingRequestMidStore>()
+    .context("Could not get pending request store")?;
+
+    pending_request_mid_store.remove(&msg.id);
+
+    let config = data.get::<Config>().context("Could not get config")?;
+
+    match message_id {
+        Some(message_id) => {
+            let existing_request = config
+                .server
+                .log_channel_id
+                .message(&ctx.http, message_id)
+                .await;
+
+            match existing_request {
+                Ok(mut existing_request) => {
+                    edit_request(
+                        &ctx,
+                        &mut existing_request,
+                        "Request Cancelled",
+                        None,
+                        None,
+                        false,
+                    )
+                    .await
+                    .context("Could not edit request message"); // log here
+                }
+                Err(_) => {}
             }
         }
-        _ => {}
+        None => {}
     }
 
-    match has_valid_image_url {
-        Some(image_url) => {
-            let upload_response = upload_image_to_imgur(image_url)
-                .await
-                .expect("Error uploading image to imgur");
+    // Get message attachment and create request
 
-            let uploaded_image_url = upload_response.data.link;
-            create_request(&ctx, &msg, uploaded_image_url).await;
-        }
-        _ => {}
+    let message_attachment = msg.attachments.first().context("No message attachment")?;
+    let attachment_content_type = &message_attachment.content_type.as_ref().context("Could not get content-type")?[6..];
+    
+    if config
+        .settings
+        .image_types
+        .contains(&attachment_content_type.to_string())
+    {
+        drop(data);
+        
+        let created_message_id = create_request_log_message(&ctx, &msg).await?; // Add error handling here (log to channel?)
+
+        // Add new request to local store
+
+        let mut data = ctx.data.write().await;
+        let pending_request_store = data
+            .get_mut::<PendingRequestUidStore>()
+            .context("Could not get pending request store")?;
+        pending_request_store.insert(msg.author.id, created_message_id);
+
+        let pending_request_mid_store = data
+        .get_mut::<PendingRequestMidStore>()
+        .context("Could not get pending request store")?;
+        pending_request_mid_store.insert(msg.id, created_message_id);
     }
+
+    Ok(())
 }

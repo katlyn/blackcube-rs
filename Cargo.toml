@@ -1,19 +1,26 @@
 [package]
-name = "oxide"
-version = "0.1.0"
+name = "blackcube-rs"
+version = "0.2.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-serenity = { version = "0.10", default-features = false, features = ["client", "gateway", "rustls_backend", "model", "unstable_discord_api"] }
+serenity = { version = "0.12", default-features = false, features = [
+    "client",
+    "builder",
+    "gateway",
+    "rustls_backend",
+    "model",
+    "unstable_discord_api",
+    "http",
+] }
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
-lazy_static = "1.4.0"
-reqwest = {version = "0.11.9", features = ["json"]}
+reqwest = { version = "0.11.9", features = ["json"] }
 serde_json = "1.0.78"
-mongodb = {version = "2.1.0", default-features = false, features = ["sync"]}
+mongodb = { version = "2.1.0", default-features = false, features = ["sync"] }
 serde = "1.0.135"
-toml = "0.5.8"
+toml = "0.8.8"
 bson = "2.1.0"
 anyhow = "1.0"
 url = "2.2.2"

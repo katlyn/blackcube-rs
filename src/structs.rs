@@ -1,10 +1,41 @@
+use std::collections::HashMap;
+
+use reqwest::Client;
 pub use serde::{Deserialize, Serialize};
 
 pub use serenity::model::id::{ChannelId, RoleId};
+use serenity::{
+    all::{MessageId, UserId},
+    prelude::TypeMapKey,
+};
 
 pub struct Collections {
     pub usrbg: mongodb::sync::Collection<Usrbg>,
     pub blacklist: mongodb::sync::Collection<Blacklist>,
+}
+
+impl TypeMapKey for Collections {
+    type Value = Collections;
+}
+
+pub struct HttpClient {
+    pub client: Client,
+}
+
+impl TypeMapKey for HttpClient {
+    type Value = HttpClient;
+}
+
+pub struct PendingRequestUidStore;
+
+impl TypeMapKey for PendingRequestUidStore {
+    type Value = HashMap<UserId, MessageId>;
+}
+
+pub struct PendingRequestMidStore;
+
+impl TypeMapKey for PendingRequestMidStore {
+    type Value = HashMap<MessageId, MessageId>;
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,6 +69,10 @@ pub struct Config {
     pub database: Database,
     pub server: Server,
     pub settings: Settings,
+}
+
+impl TypeMapKey for Config {
+    type Value = Config;
 }
 
 #[derive(Debug, Serialize, Deserialize)]

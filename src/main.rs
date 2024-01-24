@@ -1,86 +1,124 @@
+mod auth;
 mod database;
 mod handlers;
 mod imgur;
 mod responses;
 mod structs;
 
-#[macro_use]
-extern crate lazy_static;
+use anyhow::Context as AnyhowContext;
+use database::connect_database;
+use handlers::{
+    commands::handle_commands, components::handle_component_interaction,
+    requests::handle_user_request,
+};
+use responses::edit_request;
+use structs::{Collections, Config, PendingRequestMidStore, PendingRequestUidStore};
+
+use std::{collections::HashMap, fs};
 
 use reqwest::Client;
 use serenity::{
+    all::{MessageId, UserId},
     async_trait,
     client::{Context, EventHandler},
     model::{
+        application::Interaction,
         channel::Message,
-        guild::{Member, PartialMember},
-        interactions::Interaction,
         prelude::Ready,
+        prelude::{ChannelId, GuildId},
     },
+    prelude::GatewayIntents,
 };
-use std::fs;
 
-use database::connect_database;
-use handlers::{handle_commands, handle_component_interaction, handle_request};
-use structs::{Blacklist, Collections, Config, Usrbg};
-
+use crate::structs::HttpClient;
 struct Handler;
-
-trait HasAuth {
-    fn check_auth(&self) -> bool;
-}
-
-impl HasAuth for PartialMember {
-    fn check_auth(&self) -> bool {
-        self.roles.contains(&CONFIG.server.auth_role_id)
-    }
-}
-impl HasAuth for Member {
-    fn check_auth(&self) -> bool {
-        self.roles.contains(&CONFIG.server.auth_role_id)
-    }
-}
-
-pub trait TypeInfo {
-    fn type_of(&self) -> &'static str;
-}
-
-impl TypeInfo for Usrbg {
-    fn type_of(&self) -> &'static str {
-        "Usrbg"
-    }
-}
-
-impl TypeInfo for Blacklist {
-    fn type_of(&self) -> &'static str {
-        "Blacklist"
-    }
-}
-
-lazy_static! {
-    static ref CONFIG: Config = toml::from_str(
-        &fs::read_to_string("/etc/oxide/oxide.toml")
-            .expect("Something went wrong reading the file")
-    )
-    .expect("Error parsing toml file");
-    static ref COLLECTIONS: Collections = connect_database(&CONFIG);
-    static ref HTTP_CLIENT: Client = Client::new();
-}
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
-        if msg.channel_id == CONFIG.server.request_channel_id {
-            handle_request(ctx, msg).await;
-        } else if msg.channel_id == CONFIG.server.command_channel_id {
-            handle_commands(ctx, msg);
+        let data = ctx.data.read().await;
+        let config = data
+            .get::<Config>()
+            .expect("Could not get config from data");
+
+        if msg.channel_id == config.server.request_channel_id {
+            drop(data);
+            tokio::spawn(handle_user_request(ctx, msg));
+        } else if msg.channel_id == config.server.command_channel_id {
+            drop(data);
+            tokio::spawn(handle_commands(ctx, msg));
         }
+    }
+
+    async fn message_delete(
+        &self,
+        ctx: Context,
+        _channel_id: ChannelId,
+        deleted_message_id: MessageId,
+        _guild_id: Option<GuildId>,
+    ) {
+        tokio::spawn(async move {
+            let mut data = ctx.data.write().await;
+
+            let pending_request_mid_store = data
+                .get_mut::<PendingRequestMidStore>()
+                .context("Could not get pending request store")
+                .expect("Could not get pending request mid store");
+
+            let message_id = pending_request_mid_store.remove(&deleted_message_id);
+
+            let config = data
+                .get::<Config>()
+                .expect("Could not get config from data");
+
+            match message_id {
+                Some(message_id) => {
+                    let existing_request = config
+                        .server
+                        .log_channel_id
+                        .message(&ctx.http, message_id)
+                        .await;
+
+                    match existing_request {
+                        Ok(mut existing_request) => {
+                            edit_request(
+                                &ctx,
+                                &mut existing_request,
+                                "Request Cancelled",
+                                None,
+                                None,
+                                false,
+                            )
+                            .await
+                            .context("Could not edit request message"); // log here
+                        }
+                        Err(_) => {}
+                    }
+                }
+                None => {}
+            }
+        });
     }
 
     async fn interaction_create(&self, ctx: Context, interaction: Interaction) {
         match interaction {
-            Interaction::MessageComponent(component_interaction) => {
-                handle_component_interaction(ctx, component_interaction);
+            Interaction::Component(mut component_interaction) => {
+                tokio::spawn(async move {
+                    let result =
+                        handle_component_interaction(ctx.clone(), component_interaction.clone())
+                            .await;
+                    if result.is_err() {
+                        edit_request(
+                            &ctx,
+                            &mut component_interaction.message,
+                            "Failed",
+                            None,
+                            None,
+                            false,
+                        )
+                        .await; // log here
+                    }
+                });
             }
             _ => {}
         }
@@ -93,11 +131,36 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
-    let mut client = serenity::Client::builder(&CONFIG.bot.discord_token)
-        .application_id(CONFIG.bot.application_id)
+    let config: Config = toml::from_str(
+        &fs::read_to_string("/etc/oxide/oxide.toml")
+            .expect("Could not read configuration file, make sure the config is located at /etc/oxide/oxide.toml")
+    ).expect("could not read config");
+
+    let collections: Collections =
+        connect_database(&config).expect("Could not connect to database");
+
+    let http_client: Client = Client::new();
+
+    let pending_request_uid_store: HashMap<UserId, MessageId> = HashMap::new();
+    let pending_request_mid_store: HashMap<MessageId, MessageId> = HashMap::new();
+
+    let intents = GatewayIntents::GUILD_MESSAGES | GatewayIntents::MESSAGE_CONTENT;
+    let mut client = serenity::Client::builder(&config.bot.discord_token, intents)
+        .application_id(config.bot.application_id.into())
         .event_handler(Handler)
         .await
         .expect("Error creating client");
+
+    let mut data = client.data.write().await;
+    data.insert::<Config>(config);
+    data.insert::<Collections>(collections);
+    data.insert::<HttpClient>(HttpClient {
+        client: http_client,
+    });
+    data.insert::<PendingRequestUidStore>(pending_request_uid_store);
+    data.insert::<PendingRequestMidStore>(pending_request_mid_store);
+
+    drop(data);
 
     client.start().await.expect("Error starting client");
 }

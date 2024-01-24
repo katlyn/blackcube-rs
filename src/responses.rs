@@ -1,100 +1,167 @@
+use anyhow::Context as AnyhowContext;
 use serenity::{
-    client::Context,
-    model::{
-        channel::Message,
-        interactions::{message_component, InteractionApplicationCommandCallbackDataFlags},
+    all::{ButtonStyle, InteractionResponseFlags, MessageId},
+    builder::{
+        CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
+        CreateInteractionResponseMessage, CreateMessage, EditMessage,
     },
+    client::Context,
+    model::{application::ComponentInteraction, channel::Message},
 };
+use url::Url;
 
-use crate::CONFIG;
+use crate::structs::Config;
 
 pub async fn edit_request(
-    ctx: Context,
-    mut component_interaction: message_component::MessageComponentInteraction,
-    uid: String,
-    image_url: String,
+    ctx: &Context,
+    msg: &mut Message,
     message: &str,
-) {
-    // let thumbnail = component_interaction.message.embeds.first().expect("error parsing first embed in vector").thumbnail.expect("error parsing thumbnail from request embed").url;
-    component_interaction
-        .message
-        .edit(&ctx, |m| {
-            m.components(|c| c);
-            m.embed(|e| {
-                e.title(message);
-                e.description(uid);
-                e
-            });
-            m
-        })
-        .await
-        .expect("Error editing message");
+    thumbnail: Option<&str>,
+    link: Option<&str>,
+    keep_components: bool,
+) -> anyhow::Result<()> {
+    let embed = &msg.embeds[0];
+    let fields: Vec<(_, _, bool)> = embed
+        .fields
+        .iter()
+        .map(|field| (field.name.clone(), field.value.clone(), field.inline))
+        .collect();
+
+    let mut components = vec![];
+
+    if keep_components {
+        components = vec![CreateActionRow::Buttons(vec![
+            CreateButton::new("Approve")
+                .style(ButtonStyle::Success)
+                .label("Approve"),
+            CreateButton::new("Deny")
+                .style(ButtonStyle::Danger)
+                .label("Deny"),
+            CreateButton::new("Cancel")
+                .style(ButtonStyle::Secondary)
+                .label("Cancel"),
+        ])];
+    }
+
+    let mut embed_builder = CreateEmbed::new().title(message).fields(fields);
+
+    match thumbnail {
+        Some(thumbnail) => {
+            embed_builder = embed_builder.thumbnail(thumbnail);
+        }
+        None => {}
+    }
+
+    match link {
+        Some(link) => {
+            embed_builder = embed_builder.url(link);
+        }
+        None => {}
+    }
+
+    msg.edit(
+        &ctx.http,
+        EditMessage::new()
+            .components(components)
+            .embed(embed_builder),
+    )
+    .await?;
+    Ok(())
 }
 
-pub async fn send_interaction_reply(
+pub async fn send_ephemeral_interaction_reply(
     ctx: Context,
-    component_interaction: message_component::MessageComponentInteraction,
-) {
+    component_interaction: ComponentInteraction,
+    message: &str,
+) -> anyhow::Result<()> {
     component_interaction
-        .create_interaction_response(&ctx, |m| {
-            m.interaction_response_data(|d| {
-                d.content("You must wait for a moderator to approve/deny this banner");
-                d.flags(InteractionApplicationCommandCallbackDataFlags::EPHEMERAL);
-                d
-            });
-            m
-        })
+        .create_response(
+            &ctx.http,
+            CreateInteractionResponse::Message(
+                CreateInteractionResponseMessage::new()
+                    .content(message)
+                    .flags(InteractionResponseFlags::EPHEMERAL),
+            ),
+        )
+        .await?;
+    Ok(())
+}
+
+pub async fn send_command_reply(
+    msg: Message,
+    ctx: Context,
+    response_text: &str,
+) -> anyhow::Result<()> {
+    msg.reply(&ctx.http, response_text)
         .await
-        .expect("Error sending response");
+        .context("could not reply to message")?;
+    Ok(())
 }
 
-pub async fn send_command_reply(msg: Message, ctx: Context, response_text: &str) {
-    msg.reply(&ctx, response_text).await.unwrap();
-}
+pub async fn create_request_log_message(ctx: &Context, msg: &Message) -> anyhow::Result<MessageId> {
+    let image_url = &msg
+        .attachments
+        .first()
+        .context("Could not get attachment from message")?
+        .url;
 
-pub async fn create_request(ctx: &Context, msg: &Message, image_url: String) {
-    CONFIG
+    let data = ctx.data.read().await;
+    let config = data.get::<Config>().context("Could not get config")?;
+
+    let created_message = config
         .server
         .log_channel_id
-        .send_message(&ctx.http, |m| {
-            m.components(|c| {
-                c.create_action_row(|r| {
-                    r.create_button(|b| {
-                        b.style(message_component::ButtonStyle::Success);
-                        b.custom_id("Approve");
-                        b.label("Approve");
-
-                        b
-                    });
-                    r.create_button(|b| {
-                        b.style(message_component::ButtonStyle::Danger);
-                        b.custom_id("Deny");
-                        b.label("Deny");
-
-                        b
-                    });
-                    r.create_button(|b| {
-                        b.style(message_component::ButtonStyle::Secondary);
-                        b.custom_id("Cancel");
-                        b.label("Cancel");
-
-                        b
-                    });
-
-                    r
-                })
-            });
-
-            m.embed(|e| {
-                e.title("Request Pending");
-                e.description(msg.author.id.0);
-                e.thumbnail(image_url);
-
-                e
-            });
-
-            m
-        })
+        .send_message(
+            &ctx.http,
+            CreateMessage::new()
+                .components(vec![CreateActionRow::Buttons(vec![
+                    CreateButton::new("Approve")
+                        .style(ButtonStyle::Success)
+                        .label("Approve"),
+                    CreateButton::new("Deny")
+                        .style(ButtonStyle::Danger)
+                        .label("Deny"),
+                    CreateButton::new("Cancel")
+                        .style(ButtonStyle::Secondary)
+                        .label("Cancel"),
+                ])])
+                .embed(
+                    CreateEmbed::new()
+                        .title("Request Pending")
+                        .field("User", msg.author.name.clone(), true)
+                        .field("UID", msg.author.id.to_string(), true)
+                        .thumbnail(image_url)
+                        .url(msg.link()),
+                ),
+        )
         .await
-        .unwrap();
+        .context("could not create request log message")?;
+    Ok(created_message.id)
+}
+
+pub async fn delete_user_request(ctx: &Context, embed_link: &String) -> anyhow::Result<()> {
+    let embed_link = Url::parse(&embed_link).context("Could not parse embed link")?;
+
+    let segments = embed_link
+        .path_segments()
+        .context("could not get segments from embed link")?;
+    let message_id = segments
+        .into_iter()
+        .last()
+        .context("Could not get message ID from link")?;
+
+    let message_id: u64 = message_id.parse().context("Error parsing message id")?;
+
+    let data = ctx.data.read().await;
+    let config = data.get::<Config>().context("Could not get config")?;
+
+    config
+        .server
+        .request_channel_id
+        .delete_message(&ctx.http, message_id)
+        .await
+        .context("could not delete original message")?;
+
+    drop(data);
+    Ok(())
 }

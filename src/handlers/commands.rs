@@ -1,9 +1,14 @@
-use bson::doc;
+use anyhow::Context as AnyhowContext;
 use serenity::{client::Context, model::channel::Message};
 
-use crate::{database, responses::send_command_reply, structs::Blacklist, HasAuth, COLLECTIONS};
+use crate::{
+    auth::HasAuth,
+    database,
+    responses::send_command_reply,
+    structs::{Blacklist, Collections},
+};
 
-pub fn handle_commands(ctx: Context, msg: Message) {
+pub async fn handle_commands(ctx: Context, msg: Message) {
     let message_content = msg.content.clone();
     let mut message_words = message_content.split_whitespace();
     let command = message_words.next();
@@ -11,73 +16,112 @@ pub fn handle_commands(ctx: Context, msg: Message) {
         Some(command) => {
             let command_argument = message_words.next();
 
-            handle_command_auth_level(ctx, msg, command, command_argument);
+            handle_command_auth_level(ctx, msg, command, command_argument).await; // log here
         }
         None => {}
     }
 }
 
-pub fn handle_command_auth_level(
+pub async fn handle_command_auth_level(
     ctx: Context,
     msg: Message,
     command: &str,
     command_argument: Option<&str>,
-) {
-    let has_auth = msg.member.as_ref().unwrap().check_auth();
+) -> anyhow::Result<()> {
+    let has_auth = msg.member.as_ref().context("could not get auth")?.has_auth(&ctx).await?;
     if has_auth && command_argument.is_some() {
-        handle_admin_commands(ctx, msg, command, command_argument);
+        handle_admin_commands(ctx, msg, command, command_argument).await?;
     } else {
-        handle_user_commands(ctx, msg, command);
+        handle_user_commands(ctx, msg, command).await?;
     }
+    Ok(())
 }
 
-pub fn handle_admin_commands(
+pub async fn handle_admin_commands(
     ctx: Context,
     msg: Message,
     command: &str,
     command_argument: Option<&str>,
-) {
+) -> anyhow::Result<()> {
     let user_id = match command_argument {
         Some(user_id) => user_id,
         None => "",
     };
 
     let valid_user_id = user_id.trim().parse::<u64>().is_ok();
+
     if valid_user_id {
+        let data = ctx.data.read().await;
+        let collections = data
+            .get::<Collections>()
+            .context("Could not get collections")?;
+
         match command {
             "~remove" => {
-                database::delete(&*COLLECTIONS, user_id.to_string())
-                    .expect("Error removing self from database");
-
-                tokio::spawn(send_command_reply(msg, ctx, "usrbg removed"));
+                let result = database::delete(&collections.usrbg, user_id.to_string());
+                drop(data);
+                match result {
+                    Ok(_) => {
+                        send_command_reply(msg, ctx, "usrbg removed").await?;
+                    }
+                    Err(_) => {
+                        send_command_reply(msg, ctx, "failed to remove usrbg").await?;
+                    }
+                }
             }
             "~ban" => {
                 let entry = Blacklist {
                     uid: user_id.to_owned(),
                 };
-                database::upsert(&*COLLECTIONS, &user_id.to_string(), entry)
-                    .expect("Error upserting user into database");
-                tokio::spawn(send_command_reply(msg, ctx, "banned user"));
+                let result = database::upsert(&collections.blacklist, &user_id.to_string(), entry);
+                drop(data);
+                match result {
+                    Ok(_) => {
+                        send_command_reply(msg, ctx, "banned user").await?;
+                    }
+                    Err(_) => {
+                        send_command_reply(msg, ctx, "failed to ban user").await?;
+                    }
+                }
             }
             "~unban" => {
-                COLLECTIONS
-                    .blacklist
-                    .delete_one(doc! { "uid": user_id }, None)
-                    .expect("Error unbanning user");
-                tokio::spawn(send_command_reply(msg, ctx, "unbanned user"));
+                let result = database::delete(&collections.blacklist, user_id.to_string());
+                drop(data);
+                match result {
+                    Ok(_) => {
+                        send_command_reply(msg, ctx, "unbanned user").await?;
+                    }
+                    Err(_) => {
+                        send_command_reply(msg, ctx, "failed to unban user").await?;
+                    }
+                }
             }
             &_ => {}
         }
     }
+    Ok(())
 }
 
-pub fn handle_user_commands(ctx: Context, msg: Message, command: &str) {
+pub async fn handle_user_commands(ctx: Context, msg: Message, command: &str) -> anyhow::Result<()> {
     match command {
         "~remove" => {
-            database::delete(&*COLLECTIONS, msg.author.id.to_string())
-                .expect("Error removing self from database");
-            tokio::spawn(send_command_reply(msg, ctx, "usrbg removed"));
+            let data = ctx.data.read().await;
+            let collections = data
+                .get::<Collections>()
+                .context("Could not get collections")?;
+
+            let result = database::delete(&collections.usrbg, msg.author.id.to_string());
+            drop(data);
+            match result {
+                Ok(_) => {
+                    send_command_reply(msg, ctx, "usrbg removed").await?;
+                }
+                Err(_) => {
+                    send_command_reply(msg, ctx, "failed to remove usrbg").await?;
+                }
+            }
         }
         &_ => {}
     }
+    Ok(())
 }

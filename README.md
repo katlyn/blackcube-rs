@@ -1,0 +1,3 @@
+# BlackCube-rs - USRBG handler bot v3
+
+Documentation coming soon...
