@@ -132,8 +132,8 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     let config: Config = toml::from_str(
-        &fs::read_to_string("/etc/oxide/oxide.toml")
-            .expect("Could not read configuration file, make sure the config is located at /etc/oxide/oxide.toml")
+        &fs::read_to_string("/etc/blackcube-rs/blackcube-rs.toml")
+            .expect("Could not read configuration file, make sure the config is located at /etc/blackcube-rs/blackcube-rs.toml")
     ).expect("could not read config");
 
     let collections: Collections =
