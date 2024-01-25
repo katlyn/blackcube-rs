@@ -16,7 +16,10 @@ pub async fn handle_commands(ctx: Context, msg: Message) {
         Some(command) => {
             let command_argument = message_words.next();
 
-            handle_command_auth_level(ctx, msg, command, command_argument).await; // log here
+            let result = handle_command_auth_level(ctx, msg, command, command_argument).await;
+            if result.is_err() {
+                println!("{:?}", result);
+            }
         }
         None => {}
     }
@@ -28,7 +31,12 @@ pub async fn handle_command_auth_level(
     command: &str,
     command_argument: Option<&str>,
 ) -> anyhow::Result<()> {
-    let has_auth = msg.member.as_ref().context("could not get auth")?.has_auth(&ctx).await?;
+    let has_auth = msg
+        .member
+        .as_ref()
+        .context("could not get auth")?
+        .has_auth(&ctx)
+        .await?;
     if has_auth && command_argument.is_some() {
         handle_admin_commands(ctx, msg, command, command_argument).await?;
     } else {

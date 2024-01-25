@@ -81,7 +81,7 @@ impl EventHandler for Handler {
 
                     match existing_request {
                         Ok(mut existing_request) => {
-                            edit_request(
+                            let result = edit_request(
                                 &ctx,
                                 &mut existing_request,
                                 "Request Cancelled",
@@ -90,7 +90,10 @@ impl EventHandler for Handler {
                                 false,
                             )
                             .await
-                            .context("Could not edit request message"); // log here
+                            .context("Could not edit request message");
+                            if result.is_err() {
+                                println!("{:?}", result);
+                            }
                         }
                         Err(_) => {}
                     }
@@ -108,7 +111,9 @@ impl EventHandler for Handler {
                         handle_component_interaction(ctx.clone(), component_interaction.clone())
                             .await;
                     if result.is_err() {
-                        edit_request(
+                        println!("{:?}", result);
+
+                        let result = edit_request(
                             &ctx,
                             &mut component_interaction.message,
                             "Failed",
@@ -116,7 +121,10 @@ impl EventHandler for Handler {
                             None,
                             false,
                         )
-                        .await; // log here
+                        .await;
+                        if result.is_err() {
+                            println!("{:?}", result);
+                        }
                     }
                 });
             }

@@ -1,6 +1,6 @@
 use anyhow::Context as AnyhowContext;
 use serenity::{
-    all::{ButtonStyle, InteractionResponseFlags, MessageId},
+    all::{ButtonStyle, InteractionResponseFlags, MessageId, UserId},
     builder::{
         CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
         CreateInteractionResponseMessage, CreateMessage, EditMessage,
@@ -10,7 +10,7 @@ use serenity::{
 };
 use url::Url;
 
-use crate::structs::Config;
+use crate::structs::{Config, PendingRequestMidStore, PendingRequestUidStore};
 
 pub async fn edit_request(
     ctx: &Context,
@@ -70,7 +70,7 @@ pub async fn edit_request(
 }
 
 pub async fn send_ephemeral_interaction_reply(
-    ctx: Context,
+    ctx: &Context,
     component_interaction: ComponentInteraction,
     message: &str,
 ) -> anyhow::Result<()> {
@@ -83,7 +83,8 @@ pub async fn send_ephemeral_interaction_reply(
                     .flags(InteractionResponseFlags::EPHEMERAL),
             ),
         )
-        .await?;
+        .await
+        .context("could not create ephemeral response")?;
     Ok(())
 }
 
@@ -139,8 +140,38 @@ pub async fn create_request_log_message(ctx: &Context, msg: &Message) -> anyhow:
     Ok(created_message.id)
 }
 
-pub async fn delete_user_request(ctx: &Context, embed_link: &String) -> anyhow::Result<()> {
+pub async fn delete_user_request(
+    ctx: &Context,
+    uid: String,
+    embed_link: &String,
+) -> anyhow::Result<()> {
+    let mut data = ctx.data.write().await;
+    let pending_request_store = data
+        .get_mut::<PendingRequestUidStore>()
+        .context("Could not get pending request store")?;
+
+    let search_uid = UserId::new(uid.parse()?);
+    pending_request_store.remove(&search_uid);
+
+    let pending_request_mid_store = data
+        .get_mut::<PendingRequestMidStore>()
+        .context("Could not get pending request store")?;
+
     let embed_link = Url::parse(&embed_link).context("Could not parse embed link")?;
+
+    let segments = embed_link
+        .path_segments()
+        .context("could not get segments from embed link")?;
+    let message_id = segments
+        .into_iter()
+        .last()
+        .context("Could not get message ID from link")?;
+
+    let message_id: u64 = message_id.parse().context("Error parsing message id")?;
+
+    pending_request_mid_store.remove(&MessageId::new(message_id));
+
+    drop(data);
 
     let segments = embed_link
         .path_segments()

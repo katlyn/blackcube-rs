@@ -1,17 +1,12 @@
 use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 
-use serenity::all::MessageId;
-use serenity::all::UserId;
 use serenity::{
     builder::CreateInteractionResponse, client::Context, model::application::ComponentInteraction,
 };
-use url::Url;
 
 use crate::responses::delete_user_request;
 use crate::structs::Collections;
-use crate::structs::PendingRequestMidStore;
-use crate::structs::PendingRequestUidStore;
 use crate::{
     auth::HasAuth,
     database,
@@ -59,14 +54,14 @@ pub async fn handle_component_interaction(
 
     let uid: String = uid.context("Could not parse uid from embed")?;
 
-    component_interaction
-        .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
-        .await
-        .context("Could not acknowledge component interaction")?;
-
     match component_interaction.data.custom_id.as_str() {
         "Approve" => {
             if has_auth {
+                component_interaction
+                    .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
+                    .await
+                    .context("Could not acknowledge component interaction")?;
+
                 edit_request(
                     &ctx,
                     &mut component_interaction.message,
@@ -106,11 +101,14 @@ pub async fn handle_component_interaction(
                 )
                 .await
                 .context("could not edit request message")?;
+                delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
+                    .await
+                    .context("Could not delete original request")?;
             } else {
                 send_ephemeral_interaction_reply(
-                    ctx.clone(),
+                    &ctx,
                     component_interaction.clone(),
-                    "You must wait for a moderator to approve/deny this banner",
+                    "You must wait for a moderator to approve/deny this background",
                 )
                 .await
                 .context("Could not notify user of lack of auth")?;
@@ -118,6 +116,11 @@ pub async fn handle_component_interaction(
         }
         "Deny" => {
             if has_auth {
+                component_interaction
+                    .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
+                    .await
+                    .context("Could not acknowledge component interaction")?;
+
                 edit_request(
                     &ctx,
                     &mut component_interaction.message,
@@ -128,16 +131,26 @@ pub async fn handle_component_interaction(
                 )
                 .await
                 .context("Could not edit request message")?;
+                delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
+                    .await
+                    .context("Could not delete original request")?;
             } else {
-                tokio::spawn(send_ephemeral_interaction_reply(
-                    ctx.clone(),
+                send_ephemeral_interaction_reply(
+                    &ctx,
                     component_interaction.clone(),
-                    "You must wait for a moderator to approve/deny this banner",
-                ));
+                    "You must wait for a moderator to approve/deny this background",
+                )
+                .await
+                .context("Could not tell user to wait for moderator approval")?;
             }
         }
         "Cancel" => {
             if component_interaction.user.id.get() == uid.trim().parse::<u64>().unwrap() {
+                component_interaction
+                    .create_response(&ctx.http, CreateInteractionResponse::Acknowledge)
+                    .await
+                    .context("Could not acknowledge component interaction")?;
+
                 edit_request(
                     &ctx,
                     &mut component_interaction.message,
@@ -148,49 +161,23 @@ pub async fn handle_component_interaction(
                 )
                 .await
                 .context("Could not edit request message")?;
+
+                delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
+                    .await
+                    .context("Could not delete original request")?;
+            } else {
+                send_ephemeral_interaction_reply(
+                    &ctx,
+                    component_interaction.clone(),
+                    "You cannot cancel someone else's background request",
+                )
+                .await
+                .context("Could not tell user they cannot cancel someone else's background")?;
             }
         }
         &_ => {
             bail!("Invalid component ID");
         }
     }
-
-    let mut data = ctx.data.write().await;
-    let pending_request_store = data
-        .get_mut::<PendingRequestUidStore>()
-        .context("Could not get pending request store")?;
-
-    let search_uid = UserId::new(uid.parse()?);
-    pending_request_store.remove(&search_uid);
-
-    let pending_request_mid_store = data
-        .get_mut::<PendingRequestMidStore>()
-        .context("Could not get pending request store")?;
-
-    match &embed_link {
-        Some(embed_link) => {
-            let embed_link = Url::parse(&embed_link).context("Could not parse embed link")?;
-
-            let segments = embed_link
-                .path_segments()
-                .context("could not get segments from embed link")?;
-            let message_id = segments
-                .into_iter()
-                .last()
-                .context("Could not get message ID from link")?;
-
-            let message_id: u64 = message_id.parse().context("Error parsing message id")?;
-
-            pending_request_mid_store.remove(&MessageId::new(message_id));
-        }
-        None => {}
-    }
-
-    drop(data);
-
-    delete_user_request(&ctx, &embed_link.context("could not get embed link")?)
-    .await
-    .context("Could not delete original request")?;
-
     Ok(())
 }

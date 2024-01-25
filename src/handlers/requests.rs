@@ -4,7 +4,7 @@ use serenity::{client::Context, model::channel::Message};
 use crate::{
     auth::IsBlacklisted,
     responses::{create_request_log_message, edit_request},
-    structs::{Config, PendingRequestUidStore, PendingRequestMidStore},
+    structs::{Config, PendingRequestMidStore, PendingRequestUidStore},
 };
 
 pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<()> {
@@ -22,8 +22,8 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
     let message_id = pending_request_uid_store.remove(&msg.author.id);
 
     let pending_request_mid_store = data
-    .get_mut::<PendingRequestMidStore>()
-    .context("Could not get pending request store")?;
+        .get_mut::<PendingRequestMidStore>()
+        .context("Could not get pending request store")?;
 
     pending_request_mid_store.remove(&msg.id);
 
@@ -39,7 +39,7 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
 
             match existing_request {
                 Ok(mut existing_request) => {
-                    edit_request(
+                    let result = edit_request(
                         &ctx,
                         &mut existing_request,
                         "Request Cancelled",
@@ -48,7 +48,10 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
                         false,
                     )
                     .await
-                    .context("Could not edit request message"); // log here
+                    .context("Could not edit request message");
+                    if result.is_err() {
+                        println!("{:?}", result);
+                    }
                 }
                 Err(_) => {}
             }
@@ -59,15 +62,18 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
     // Get message attachment and create request
 
     let message_attachment = msg.attachments.first().context("No message attachment")?;
-    let attachment_content_type = &message_attachment.content_type.as_ref().context("Could not get content-type")?[6..];
-    
+    let attachment_content_type = &message_attachment
+        .content_type
+        .as_ref()
+        .context("Could not get content-type")?[6..];
+
     if config
         .settings
         .image_types
         .contains(&attachment_content_type.to_string())
     {
         drop(data);
-        
+
         let created_message_id = create_request_log_message(&ctx, &msg).await?; // Add error handling here (log to channel?)
 
         // Add new request to local store
@@ -79,8 +85,8 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
         pending_request_store.insert(msg.author.id, created_message_id);
 
         let pending_request_mid_store = data
-        .get_mut::<PendingRequestMidStore>()
-        .context("Could not get pending request store")?;
+            .get_mut::<PendingRequestMidStore>()
+            .context("Could not get pending request store")?;
         pending_request_mid_store.insert(msg.id, created_message_id);
     }
 
