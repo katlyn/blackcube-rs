@@ -101,6 +101,9 @@ pub async fn handle_component_interaction(
                 )
                 .await
                 .context("could not edit request message")?;
+
+                drop(data);
+
                 delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
                     .await
                     .context("Could not delete original request")?;
