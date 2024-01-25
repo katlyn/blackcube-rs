@@ -3,7 +3,7 @@ use serenity::{client::Context, model::channel::Message};
 
 use crate::{
     auth::IsBlacklisted,
-    responses::{create_request_log_message, edit_request},
+    responses::{create_request_log_message, delete_user_request, edit_request},
     structs::{Config, PendingRequestMidStore, PendingRequestUidStore},
 };
 
@@ -28,6 +28,7 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
     pending_request_mid_store.remove(&msg.id);
 
     let config = data.get::<Config>().context("Could not get config")?;
+    // let valid_image_types = config.settings.image_types.clone();
 
     match message_id {
         Some(message_id) => {
@@ -39,6 +40,23 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
 
             match existing_request {
                 Ok(mut existing_request) => {
+                    let embed = existing_request.embeds.first().context("No embed")?;
+                    let embed_link = embed.url.clone().context("No message to delete")?;
+
+                    let mut uid: Option<String> = None;
+
+                    for field in &embed.fields {
+                        match field.name.as_str() {
+                            "UID" => {
+                                uid = Some(field.value.clone());
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let uid: String = uid.context("Could not parse uid from embed")?;
+
                     let result = edit_request(
                         &ctx,
                         &mut existing_request,
@@ -52,6 +70,12 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
                     if result.is_err() {
                         println!("{:?}", result);
                     }
+
+                    // drop(data);
+
+                    // delete_user_request(&ctx, uid, &embed_link)
+                    //     .await
+                    //     .context("Could not delete original request")?;
                 }
                 Err(_) => {}
             }
@@ -61,16 +85,16 @@ pub async fn handle_user_request(ctx: Context, msg: Message) -> anyhow::Result<(
 
     // Get message attachment and create request
 
+    // let data = ctx.data.write().await;
+    // let config = data.get::<Config>().context("Could not get config")?;
+
     let message_attachment = msg.attachments.first().context("No message attachment")?;
     let attachment_content_type = &message_attachment
         .content_type
         .as_ref()
         .context("Could not get content-type")?[6..];
 
-    if config
-        .settings
-        .image_types
-        .contains(&attachment_content_type.to_string())
+    if config.settings.image_types.contains(&attachment_content_type.to_string())
     {
         drop(data);
 
