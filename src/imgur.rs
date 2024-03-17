@@ -17,7 +17,7 @@ pub async fn upload_image_to_imgur(
     let request = http_client
         .post("https://api.imgur.com/3/image")
         .header("Authorization", &config.api.imgur_id)
-        .body(image_url);
+        .form(&[("image", image_url)]);
 
     let response = request.send().await?;
     let raw_json_response = response.text().await?;

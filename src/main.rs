@@ -139,9 +139,23 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
+    let config_file_location;
+
+    match std::env::consts::OS {
+        "linux" => {
+            config_file_location = "/etc/blackcube-rs/blackcube-rs.toml";
+        }
+        "windows" => {
+            config_file_location = "C:\\ProgramData\\blackcube-rs\\blackcube-rs.toml";
+        }
+        _ => {
+            unreachable!();
+        }
+    }
+
     let config: Config = toml::from_str(
-        &fs::read_to_string("/etc/blackcube-rs/blackcube-rs.toml")
-            .expect("Could not read configuration file, make sure the config is located at /etc/blackcube-rs/blackcube-rs.toml")
+        &fs::read_to_string(config_file_location)
+            .expect("Could not read configuration file, make sure the config is located at /etc/blackcube-rs/blackcube-rs.toml or C:\\ProgramData\\blackcube-rs\\blackcube-rs.toml")
     ).expect("could not read config");
 
     let collections: Collections =
