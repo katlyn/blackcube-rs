@@ -27,6 +27,19 @@ impl HasAuth for Member {
         Ok(self.roles.contains(&config.server.auth_role_id))
     }
 }
+impl HasAuth for User {
+    async fn has_auth(&self, ctx: &Context) -> anyhow::Result<bool> {
+        let data = ctx.data.read().await;
+        let config = data.get::<Config>().context("Could not get config")?;
+        Ok(self
+            .has_role(
+                &ctx.http,
+                config.server.guild_id,
+                config.server.auth_role_id,
+            )
+            .await?)
+    }
+}
 
 pub trait IsBlacklisted {
     async fn is_blacklisted(&self, ctx: &Context) -> anyhow::Result<bool>;

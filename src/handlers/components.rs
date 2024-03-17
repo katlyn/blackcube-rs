@@ -30,7 +30,8 @@ pub async fn handle_component_interaction(
         .message
         .embeds
         .first()
-        .context("Could not get first embed")?;
+        .context("Could not get first embed")?
+        .clone();
 
     let embed_link = embed.url.clone();
 
@@ -104,7 +105,7 @@ pub async fn handle_component_interaction(
 
                 drop(data);
 
-                delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
+                delete_user_request(&ctx, &embed)
                     .await
                     .context("Could not delete original request")?;
             } else {
@@ -134,7 +135,7 @@ pub async fn handle_component_interaction(
                 )
                 .await
                 .context("Could not edit request message")?;
-                delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
+                delete_user_request(&ctx, &embed)
                     .await
                     .context("Could not delete original request")?;
             } else {
@@ -165,7 +166,7 @@ pub async fn handle_component_interaction(
                 .await
                 .context("Could not edit request message")?;
 
-                delete_user_request(&ctx, uid, &embed_link.context("could not get embed link")?)
+                delete_user_request(&ctx, &embed)
                     .await
                     .context("Could not delete original request")?;
             } else {

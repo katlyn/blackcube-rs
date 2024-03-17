@@ -1,6 +1,6 @@
 use anyhow::Context as AnyhowContext;
 use serenity::{
-    all::{ButtonStyle, InteractionResponseFlags, MessageId, UserId},
+    all::{ButtonStyle, Embed, InteractionResponseFlags, MessageId, UserId},
     builder::{
         CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
         CreateInteractionResponseMessage, CreateMessage, EditMessage,
@@ -140,11 +140,23 @@ pub async fn create_request_log_message(ctx: &Context, msg: &Message) -> anyhow:
     Ok(created_message.id)
 }
 
-pub async fn delete_user_request(
-    ctx: &Context,
-    uid: String,
-    embed_link: &String,
-) -> anyhow::Result<()> {
+pub async fn delete_user_request(ctx: &Context, embed: &Embed) -> anyhow::Result<()> {
+    let embed_link = embed.url.clone().context("could not get embed link")?;
+
+    let mut uid: Option<String> = None;
+
+    for field in &embed.fields {
+        match field.name.as_str() {
+            "UID" => {
+                uid = Some(field.value.clone());
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    let uid: String = uid.context("Could not parse uid from embed")?;
+
     let mut data = ctx.data.write().await;
     let pending_request_store = data
         .get_mut::<PendingRequestUidStore>()

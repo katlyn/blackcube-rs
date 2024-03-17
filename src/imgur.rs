@@ -1,3 +1,4 @@
+use anyhow::bail;
 use anyhow::Context as AnyhowContext;
 use serenity::prelude::Context;
 
@@ -20,8 +21,17 @@ pub async fn upload_image_to_imgur(
         .form(&[("image", image_url)]);
 
     let response = request.send().await?;
-    let raw_json_response = response.text().await?;
-    let json = serde_json::from_str::<ImgurResponse>(&raw_json_response)?;
 
-    Ok(json)
+    if response.status().is_success() {
+        let raw_json_response = response.text().await?;
+        let json = serde_json::from_str::<ImgurResponse>(&raw_json_response)?;
+
+        Ok(json)
+    } else {
+        bail!(
+            "Error Uploading to Imgur: {:?} | {}",
+            response.headers().clone(),
+            response.text().await?
+        );
+    }
 }

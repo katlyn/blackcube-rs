@@ -5,7 +5,7 @@ pub use serde::{Deserialize, Serialize};
 
 pub use serenity::model::id::{ChannelId, RoleId};
 use serenity::{
-    all::{MessageId, UserId},
+    all::{GuildId, MessageId, UserId},
     prelude::TypeMapKey,
 };
 
@@ -101,6 +101,7 @@ pub struct Database {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Server {
+    pub guild_id: GuildId,
     pub request_channel_id: ChannelId,
     pub log_channel_id: ChannelId,
     pub command_channel_id: ChannelId,

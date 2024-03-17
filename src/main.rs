@@ -30,7 +30,7 @@ use serenity::{
     prelude::GatewayIntents,
 };
 
-use crate::structs::HttpClient;
+use crate::{responses::delete_user_request, structs::HttpClient};
 struct Handler;
 
 #[async_trait]
@@ -112,6 +112,22 @@ impl EventHandler for Handler {
                             .await;
                     if result.is_err() {
                         println!("{:?}", result);
+
+                        let embed = component_interaction.message.embeds.first();
+
+                        match embed {
+                            Some(embed) => {
+                                let delete_result = delete_user_request(&ctx, embed).await;
+
+                                match delete_result {
+                                    Ok(()) => {}
+                                    Err(err) => {
+                                        println!("error deleting user request: {}", err);
+                                    }
+                                }
+                            }
+                            None => {}
+                        }
 
                         let result = edit_request(
                             &ctx,
