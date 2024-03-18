@@ -1,9 +1,10 @@
 use anyhow::Context as AnyhowContext;
 use serenity::{
-    all::{ButtonStyle, Embed, InteractionResponseFlags, MessageId, UserId},
+    all::{ButtonStyle, Embed, InteractionResponseFlags, MessageFlags, MessageId, UserId},
     builder::{
         CreateActionRow, CreateButton, CreateEmbed, CreateInteractionResponse,
-        CreateInteractionResponseMessage, CreateMessage, EditMessage,
+        CreateInteractionResponseFollowup, CreateInteractionResponseMessage, CreateMessage,
+        EditMessage,
     },
     client::Context,
     model::{application::ComponentInteraction, channel::Message},
@@ -82,6 +83,23 @@ pub async fn send_ephemeral_interaction_reply(
                     .content(message)
                     .flags(InteractionResponseFlags::EPHEMERAL),
             ),
+        )
+        .await
+        .context("could not create ephemeral response")?;
+    Ok(())
+}
+
+pub async fn send_ephemeral_interaction_followup_reply(
+    ctx: &Context,
+    component_interaction: ComponentInteraction,
+    message: &str,
+) -> anyhow::Result<()> {
+    component_interaction
+        .create_followup(
+            &ctx.http,
+            CreateInteractionResponseFollowup::new()
+                .content(message)
+                .flags(MessageFlags::EPHEMERAL),
         )
         .await
         .context("could not create ephemeral response")?;

@@ -30,7 +30,7 @@ use serenity::{
     prelude::GatewayIntents,
 };
 
-use crate::{responses::delete_user_request, structs::HttpClient};
+use crate::{responses::send_ephemeral_interaction_followup_reply, structs::HttpClient};
 struct Handler;
 
 #[async_trait]
@@ -117,29 +117,57 @@ impl EventHandler for Handler {
 
                         match embed {
                             Some(embed) => {
-                                let delete_result = delete_user_request(&ctx, embed).await;
+                                let embed = embed.clone();
 
-                                match delete_result {
-                                    Ok(()) => {}
-                                    Err(err) => {
-                                        println!("error deleting user request: {}", err);
+                                let thumbnail;
+
+                                match &embed.thumbnail {
+                                    Some(embed_thumbnail) => {
+                                        thumbnail = Some(embed_thumbnail.url.as_str());
                                     }
+                                    None => {
+                                        thumbnail = None;
+                                    }
+                                }
+
+                                let url;
+
+                                match &embed.url {
+                                    Some(embed_url) => {
+                                        url = Some(embed_url.as_str());
+                                    }
+                                    None => {
+                                        url = None;
+                                    }
+                                }
+
+                                let result = edit_request(
+                                    &ctx,
+                                    &mut component_interaction.message,
+                                    "Request Pending",
+                                    thumbnail,
+                                    url,
+                                    true,
+                                )
+                                .await;
+                                if result.is_err() {
+                                    println!("{:?}", result);
                                 }
                             }
                             None => {}
                         }
 
-                        let result = edit_request(
+                        let result = send_ephemeral_interaction_followup_reply(
                             &ctx,
-                            &mut component_interaction.message,
-                            "Failed",
-                            None,
-                            None,
-                            false,
+                            component_interaction,
+                            "Failed to accept request",
                         )
                         .await;
-                        if result.is_err() {
-                            println!("{:?}", result);
+                        match result {
+                            Ok(()) => {}
+                            Err(err) => {
+                                println!("{}", err);
+                            }
                         }
                     }
                 });
