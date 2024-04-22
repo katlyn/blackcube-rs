@@ -3,6 +3,7 @@ mod database;
 mod handlers;
 mod imgur;
 mod responses;
+mod s3bucket;
 mod structs;
 
 use anyhow::Context as AnyhowContext;
@@ -12,7 +13,8 @@ use handlers::{
     requests::handle_user_request,
 };
 use responses::edit_request;
-use structs::{Collections, Config, PendingRequestMidStore, PendingRequestUidStore};
+use s3bucket::connect_bucket;
+use structs::{Collections, Config, PendingRequestMidStore, PendingRequestUidStore, S3Bucket};
 
 use std::{collections::HashMap, fs};
 
@@ -24,13 +26,13 @@ use serenity::{
     model::{
         application::Interaction,
         channel::Message,
-        prelude::Ready,
-        prelude::{ChannelId, GuildId},
+        prelude::{ChannelId, GuildId, Ready},
     },
     prelude::GatewayIntents,
 };
 
 use crate::{responses::send_ephemeral_interaction_followup_reply, structs::HttpClient};
+
 struct Handler;
 
 #[async_trait]
@@ -202,6 +204,10 @@ async fn main() {
             .expect("Could not read configuration file, make sure the config is located at /etc/blackcube-rs/blackcube-rs.toml or C:\\ProgramData\\blackcube-rs\\blackcube-rs.toml")
     ).expect("could not read config");
 
+    let bucket = connect_bucket(&config)
+        .await
+        .expect("Could not initialize storage bucket connection");
+
     let collections: Collections =
         connect_database(&config).expect("Could not connect to database");
 
@@ -219,6 +225,7 @@ async fn main() {
 
     let mut data = client.data.write().await;
     data.insert::<Config>(config);
+    data.insert::<S3Bucket>(bucket);
     data.insert::<Collections>(collections);
     data.insert::<HttpClient>(HttpClient {
         client: http_client,

@@ -10,8 +10,8 @@ use crate::structs::Collections;
 use crate::{
     auth::HasAuth,
     database,
-    imgur::upload_image_to_imgur,
     responses::{edit_request, send_ephemeral_interaction_reply},
+    s3bucket::upload_image_to_s3bucket,
     structs::Usrbg,
 };
 
@@ -74,14 +74,13 @@ pub async fn handle_component_interaction(
                 .await
                 .context("Could not update message to show loading state")?;
 
-                let imgur_response = upload_image_to_imgur(&ctx, image_url.clone())
+                let s3bucket_url = upload_image_to_s3bucket(&ctx, image_url.clone(), uid.clone())
                     .await
-                    .context("Could not upload image to Imgur")?;
+                    .context("Could not upload image to s3bucket")?;
 
                 let entry = Usrbg {
                     uid: uid.clone(),
-                    // .id - replace later after fixing compiler to take just imgur ids | HELP ME
-                    img: imgur_response.data.link.clone(),
+                    img: s3bucket_url.clone(),
                 };
 
                 let data = ctx.data.read().await;
@@ -96,7 +95,7 @@ pub async fn handle_component_interaction(
                     &ctx,
                     &mut component_interaction.message,
                     "Request Approved",
-                    Some(&imgur_response.data.link),
+                    Some(&s3bucket_url),
                     None,
                     false,
                 )

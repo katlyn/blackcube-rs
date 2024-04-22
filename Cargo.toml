@@ -1,6 +1,6 @@
 [package]
 name = "blackcube-rs"
-version = "0.2.5"
+version = "0.3.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -23,4 +23,6 @@ serde = "1.0.135"
 toml = "0.8.8"
 bson = "2.1.0"
 anyhow = "1.0"
-url = "2.2.2"
+url = "2.5.0"
+rust-s3 = "0.33.0"
+mime = "0.3.17"

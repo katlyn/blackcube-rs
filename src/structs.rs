@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use reqwest::Client;
+use s3::Bucket;
 pub use serde::{Deserialize, Serialize};
 
 pub use serenity::model::id::{ChannelId, RoleId};
@@ -67,6 +68,7 @@ pub struct Config {
     pub bot: Bot,
     pub api: Api,
     pub database: Database,
+    pub storage: Storage,
     pub server: Server,
     pub settings: Settings,
 }
@@ -100,10 +102,27 @@ pub struct Database {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct Storage {
+    pub url: String,
+    pub access_key: String,
+    pub secret_key: String,
+    pub bucket_name: String,
+    pub storage_path: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Server {
     pub guild_id: GuildId,
     pub request_channel_id: ChannelId,
     pub log_channel_id: ChannelId,
     pub command_channel_id: ChannelId,
     pub auth_role_id: RoleId,
+}
+
+pub struct S3Bucket {
+    pub bucket: Bucket,
+}
+
+impl TypeMapKey for S3Bucket {
+    type Value = S3Bucket;
 }
