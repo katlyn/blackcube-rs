@@ -30,4 +30,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: "/target/release/blackcube-rs"
+          args: "./target/release/blackcube-rs ./target/x86_64-pc-windows-gnu/release/blackcube-rs.exe"
