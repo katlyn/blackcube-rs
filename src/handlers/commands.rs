@@ -5,6 +5,7 @@ use crate::{
     auth::HasAuth,
     database,
     responses::send_command_reply,
+    s3bucket::delete_image_from_s3_bucket,
     structs::{Blacklist, Collections},
 };
 
@@ -120,13 +121,15 @@ pub async fn handle_user_commands(ctx: Context, msg: Message, command: &str) -> 
 
             let result = database::delete(&collections.usrbg, msg.author.id.to_string());
             drop(data);
-            match result {
-                Ok(_) => {
-                    send_command_reply(msg, ctx, "usrbg removed").await?;
-                }
-                Err(_) => {
-                    send_command_reply(msg, ctx, "failed to remove usrbg").await?;
-                }
+
+            let result_2 = delete_image_from_s3_bucket(&ctx, msg.author.id.to_string()).await;
+
+            if result.is_ok() {
+                send_command_reply(msg, ctx, "usrbg removed").await?;
+            } else {
+                send_command_reply(msg, ctx, "failed to remove usrbg").await?;
+                result?;
+                result_2?;
             }
         }
         &_ => {}
