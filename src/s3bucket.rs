@@ -1,4 +1,5 @@
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{bail, Context as AnyhowContext};
 use mime::Mime;
@@ -75,8 +76,12 @@ pub async fn upload_image_to_s3bucket(
     }
 
     Ok(format!(
-        "{}/{}{}{}",
-        config.storage.url, config.storage.bucket_name, config.storage.storage_path, uid
+        "{}/{}{}{}?{}.gif",
+        config.storage.url,
+        config.storage.bucket_name,
+        config.storage.storage_path,
+        uid,
+        SystemTime::now().duration_since(UNIX_EPOCH).expect("Could not get unix timestamp").as_millis()
     ))
 }
 
@@ -91,9 +96,7 @@ pub async fn delete_image_from_s3_bucket(ctx: &Context, uid: String) -> Result<(
 
     let path = format!("{}{}", config.storage.storage_path, uid);
 
-    let response = bucket
-        .delete_object(path.clone())
-        .await?;
+    let response = bucket.delete_object(path.clone()).await?;
 
     if response.status_code() != 204 {
         bail!("Error deleting image from minio")
